@@ -1569,33 +1569,144 @@ kbd {
   transform: rotate(45deg);
 }
 
-.work-bar {
-  height: 10px;
-  margin: 12px 0 6px;
-  border-radius: 999px;
-  background: var(--red);
-  overflow: hidden;
-}
-
-.work-bar i {
-  display: block;
-  height: 100%;
-  background: var(--mint);
-}
-
-.work-times {
+/* the groceries on the sunset card: the ones that made it home are bright, the rest faded */
+.end-groceries {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
+  gap: 8px;
+  margin: 14px 0 4px;
+  font-size: 26px;
+}
+
+.end-groceries span {
+  opacity: 0.3;
+  filter: grayscale(1);
+}
+
+.end-groceries span.is-done {
+  opacity: 1;
+  filter: none;
+}
+
+.end-count {
+  margin: 0;
   font-size: 12.5px;
   font-weight: 800;
-}
-
-.work-times .work {
   color: var(--mint);
 }
 
-.work-times .search {
-  color: #ffb3b0;
+/* the grocery list, in the top left corner */
+.grocery-list {
+  top: 16px;
+  left: 16px;
+  z-index: 10;
+  min-width: 150px;
+  padding: 12px 16px 10px;
+}
+
+.grocery-list ul {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.grocery-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 8px;
+  margin: 0 -8px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.grocery-list .icon {
+  font-size: 16px;
+}
+
+.grocery-list .state {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.grocery-list li.is-done {
+  color: var(--muted);
+}
+
+.grocery-list li.is-done .name {
+  text-decoration: line-through;
+}
+
+.grocery-list li.is-done .state {
+  color: var(--mint);
+  font-size: 14px;
+}
+
+.grocery-list li.is-carried {
+  background: var(--yellow);
+}
+
+/* on a phone: just the icons, in a row under the top bar */
+@media (max-width: 640px) {
+  .grocery-list {
+    top: 62px;
+    min-width: 0;
+    padding: 6px 10px;
+  }
+
+  .grocery-list .eyebrow,
+  .grocery-list .name,
+  .grocery-list .state {
+    display: none;
+  }
+
+  .grocery-list ul {
+    display: flex;
+    gap: 2px;
+    margin: 0;
+  }
+
+  .grocery-list li {
+    margin: 0;
+    padding: 2px 4px;
+  }
+
+  .grocery-list li.is-done {
+    opacity: 0.35;
+  }
+}
+
+/* what you carry, floating over your head, and the shop's sign over its roof */
+.pin .carried,
+.pin .shop-sign {
+  position: absolute;
+  translate: -50% -100%;
+  pointer-events: none;
+}
+
+.carried {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--panel-solid);
+  box-shadow: var(--shadow), inset 0 0 0 2px var(--yellow);
+  font-size: 19px;
+  animation: pop 0.3s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+
+.shop-sign {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--panel-solid);
+  box-shadow: var(--shadow), inset 0 0 0 2px var(--red);
+  font: 800 12px 'Nunito', system-ui, sans-serif;
+  color: var(--red);
+  white-space: nowrap;
 }
 
 
@@ -1662,6 +1773,43 @@ kbd {
     pop 0.3s cubic-bezier(0.2, 1.6, 0.4, 1),
     shiver 0.12s linear 0.3s 6,
     fade-out 0.5s ease-in 2.2s forwards;
+}
+
+/* the round sound button in the top right corner */
+.mute-button {
+  top: 16px;
+  right: 16px;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.mute-button svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mute-button .speaker {
+  fill: var(--text);
+  stroke: var(--text);
+}
+
+.mute-button .waves {
+  stroke: var(--mint);
+}
+
+.mute-button .off {
+  stroke: var(--red);
 }
 
 /* the north arrow in the bottom right corner */

@@ -1,16 +1,18 @@
 // Everything on the page around the 3D city, kept as small as possible: the start screen where you
-// pick your character, a little bar with the six hours, the notes that pop up when something
+// pick your character, a little bar with the five hours, the notes that pop up when something
 // happens to you, the key hint, the tower's display and the demon's speech bubble (pinned to the
 // tower, see anchors.js), the z z z at night, and the sunset at the end of the day.
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Landscape } from './App.jsx'
 import { Confetti } from './Hud.jsx'
 import { PLOTS, SHAPES } from './city.js'
-import { city, clockOf, duskOf, isHome, me, sunOf, useCity } from './cityGame.js'
-import { TOWER_SPOTS, TREE_TOP, houseTop } from './CityScene.jsx'
+import { HOURS, city, clockOf, duskOf, isHome, me, sunOf, useCity } from './cityGame.js'
+import { TOWER_SPOTS, TREE_TOP, carryPoint, houseTop, shopSign } from './CityScene.jsx'
+import { LIST_LENGTH } from './groceries.js'
 import { anchorRef, toScreen } from './anchors.js'
 import { INK, MINT, RED, YELLOW } from './palette.js'
+import { isMuted, setMuted } from './sounds.js'
 
 // The sunset behind the city: the sun sinks and the sky darkens a little every hour, until night
 // falls at 18:00.
@@ -126,18 +128,19 @@ export function IntroFlight({ intro, onDone }) {
   )
 }
 
-// A little bar along the top: a dot for each of the six hours, and whether you are working or
-// searching.
+// A little bar along the top: a dot for each of the five hours, and what to do next.
 export function HourBar() {
-  const { phase, lawCount, home } = useCity()
+  const { phase, lawCount, home, carrying, delivered } = useCity()
   if (phase === 'select') return null
-  let status = home ? 'working' : 'searching for home'
-  if (lawCount === 0 && home) status = 'working · remember your house'
+  let status = 'go to the shop 🛒'
+  if (carrying !== null) status = `take the ${city.list[carrying].name} home`
+  else if (delivered === LIST_LENGTH) status = home ? 'all done · home!' : 'all done · go home'
+  else if (lawCount === 0 && home && delivered === 0) status = 'remember your house · then shop'
   if (phase === 'night') status = 'sunset'
   return (
     <div className={`panel hour-bar${home ? ' is-home' : ''}`}>
-      <span className="hour-dots" aria-label={`Hour ${lawCount} of 6`}>
-        {Array.from({ length: 6 }, (_, i) => (
+      <span className="hour-dots" aria-label={`Hour ${lawCount} of ${HOURS}`}>
+        {Array.from({ length: HOURS }, (_, i) => (
           <i key={i} className={i < lawCount ? 'on' : ''} />
         ))}
       </span>
@@ -158,7 +161,7 @@ export function CityNote() {
   )
 }
 
-// The digital display on the front of the tower: just the time and a dot for each of the six
+// The digital display on the front of the tower: just the time and a dot for each of the five
 // hours (and CUCKOO! while the demon talks). It is slanted to lie flat on the wall.
 export function TowerDisplay() {
   const { minute, phase, lawCount, inscribed } = useCity()
@@ -170,7 +173,7 @@ export function TowerDisplay() {
       <div className={`tower-display${inscribed ? '' : ' is-awake'}`}>
         <b>{clockOf(minute)}</b>
         <span className="display-dots">
-          {Array.from({ length: 6 }, (_, i) => (
+          {Array.from({ length: HOURS }, (_, i) => (
             <i key={i} className={i < lawCount ? 'on' : ''} />
           ))}
         </span>
@@ -224,6 +227,72 @@ export function BirdShout() {
 
 // A north arrow in the corner. The grid runs diagonally across the screen, so north (where the up
 // arrow or W takes you) points up and to the right.
+// Your grocery list, in the top left corner: what's home already, what you carry, what's left.
+export function GroceryList() {
+  const { phase, carrying } = useCity()
+  if (phase === 'select') return null
+  return (
+    <div className="panel grocery-list">
+      <span className="eyebrow">Grocery list</span>
+      <ul>
+        {city.list.map((g, i) => (
+          <li key={g.name} className={g.done ? 'is-done' : i === carrying ? 'is-carried' : ''}>
+            <span className="icon">{g.icon}</span>
+            <span className="name">{g.name}</span>
+            <span className="state">{g.done ? '✓' : i === carrying ? 'in hand' : ''}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// What you carry, floating above your head; and the shop's sign above its roof.
+export function Carried() {
+  const { phase, carrying } = useCity()
+  if (phase !== 'running' || carrying === null) return null
+  return (
+    <div className="pin" ref={anchorRef(carryPoint)} aria-hidden="true">
+      <div key={carrying} className="carried">
+        {city.list[carrying].icon}
+      </div>
+    </div>
+  )
+}
+export function ShopSign() {
+  const { phase } = useCity()
+  if (phase === 'select') return null
+  return (
+    <div className="pin" ref={anchorRef(shopSign)} aria-hidden="true">
+      <div className="shop-sign">🛒 shop</div>
+    </div>
+  )
+}
+
+// A round button in the top right corner that turns all the sounds off and on again (so does M).
+export function MuteButton() {
+  const { phase } = useCity()
+  const [muted, setMutedState] = useState(isMuted)
+  const toggle = () => {
+    setMuted(!isMuted())
+    setMutedState(isMuted())
+  }
+  useEffect(() => {
+    const down = (e) => e.code === 'KeyM' && toggle()
+    window.addEventListener('keydown', down)
+    return () => window.removeEventListener('keydown', down)
+  }, [])
+  if (phase === 'select') return null
+  return (
+    <button className="panel mute-button" onClick={toggle} aria-label={muted ? 'Sound on' : 'Sound off'} title={muted ? 'Sound on (M)' : 'Sound off (M)'}>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" className="speaker" />
+        {muted ? <path d="M15.5 9.5l5 5M20.5 9.5l-5 5" className="off" /> : <path d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a7.8 7.8 0 0 1 0 11" className="waves" />}
+      </svg>
+    </button>
+  )
+}
+
 export function NorthArrow() {
   const { phase } = useCity()
   if (phase === 'select') return null
@@ -262,7 +331,7 @@ export function DemonBubble() {
     <div className="pin" ref={anchorRef(TOWER_SPOTS.bubble)}>
       <div className={`demon-bubble${bubble === 'leaving' ? ' is-leaving' : ''}`} style={flight}>
         <span className="eyebrow">
-          Law {lawCount} of 6 · {clockOf(Math.floor(city.minutes / 60) * 60)}
+          Law {lawCount} of {HOURS} · {clockOf(Math.floor(city.minutes / 60) * 60)}
         </span>
         <em>{opener}</em>
         <p>{text}</p>
@@ -320,32 +389,28 @@ function DemonPortrait() {
   )
 }
 
-// "3 h 20 min"
-const hours = (minutes) => {
-  const m = Math.round(minutes)
-  return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`
-}
-
-// Sunset: a purple card in the middle. Home or stranded, how long you worked and searched, and
-// the demon itself, delivering its verdict.
+// Sunset: a purple card in the middle. Home or stranded, which groceries made it home, and the
+// demon itself, delivering its verdict.
 export function CityEnd({ onAgain }) {
   const { phase } = useCity()
   if (phase !== 'night') return null
-  const { home, work, search } = city
-  const share = (work / Math.max(1, work + search)) * 100
+  const { home, delivered } = city
   return (
     <div className="city-end">
-      {home && <Confetti />}
+      {home && delivered === LIST_LENGTH && <Confetti />}
       <section className="end-card">
         <span className="eyebrow">18:00 · the sun has set</span>
         <h2>{home ? 'You made it home!' : 'Stranded at sunset.'}</h2>
-        <div className="work-bar" aria-hidden="true">
-          <i style={{ width: `${share}%` }} />
+        <div className="end-groceries" aria-label={`${delivered} of ${LIST_LENGTH} groceries home`}>
+          {city.list.map((g) => (
+            <span key={g.name} className={g.done ? 'is-done' : ''}>
+              {g.icon}
+            </span>
+          ))}
         </div>
-        <div className="work-times">
-          <span className="work">worked {hours(work)}</span>
-          <span className="search">searched {hours(search)}</span>
-        </div>
+        <p className="end-count">
+          {delivered} of {LIST_LENGTH} groceries home
+        </p>
         <div className="demon-says">
           <DemonPortrait />
           <blockquote>“{city.verdict}”</blockquote>

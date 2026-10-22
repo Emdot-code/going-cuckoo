@@ -1,12 +1,13 @@
 // The page for Going Cuckoo: the 3D city in the middle of the sunset, and a few small things
-// around it. You hop from roof to roof with the arrow keys or W, A, S, D.
+// around it. You hop from roof to roof with the arrow keys or W, A, S, D, fetching your groceries
+// from the shop one at a time.
 // (The studio and the older sphere town are still in App.jsx and TownApp.jsx; main.jsx decides
 // which one the page shows.)
 
 import { useEffect, useState } from 'react'
 import CityScene from './CityScene.jsx'
 import SafeView from './SafeView.jsx'
-import { BirdShout, CityEnd, CityNote, CitySky, DemonBubble, HourBar, IntroFlight, LawInscription, NorthArrow, Sleepers, StartScreen, TowerDisplay } from './CityHud.jsx'
+import { BirdShout, Carried, CityEnd, CityNote, CitySky, DemonBubble, GroceryList, HourBar, IntroFlight, LawInscription, MuteButton, NorthArrow, ShopSign, Sleepers, StartScreen, TowerDisplay } from './CityHud.jsx'
 import { city, press, resetCity, startCity } from './cityGame.js'
 
 // Which way each key hops: one spot along the grid.
@@ -54,12 +55,16 @@ export default function CityApp() {
       </SafeView>
       <TowerDisplay />
       <LawInscription />
+      <ShopSign />
+      <Carried />
       <BirdShout />
       <Sleepers />
       <DemonBubble />
       <HourBar />
+      <GroceryList />
       <CityNote />
       <NorthArrow />
+      <MuteButton />
       <StartScreen onPick={start} />
       {intro && <IntroFlight intro={intro} onDone={() => setIntro(null)} />}
       <CityEnd onAgain={backToStart} />

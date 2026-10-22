@@ -3,15 +3,28 @@
 // is ridiculous, but it is also a clue: it tells you which kind of house is yours now, or where
 // it went. Every law takes your house away from you.
 //
-// title: the short version on the tower's display. say: what the demon announces (one is picked
-// at random). apply: what the law does to the city.
+// Most laws are made up on the spot (see the law maker below), so they are new every game.
+// title: the short version carved on the tower. say: what the demon announces (one is picked at
+// random). apply: what the law does to the city.
 
-import { PLOTS, POINTY, RESIDENTS, RESIDENT_BY_ID, SHAPES, nameOf } from './city.js'
+import { PLOTS, POINTY, RESIDENT_BY_ID, SHAPES, landOf, nameOf } from './city.js'
 import { shuffle, topOf } from './town.js'
 
 const pick = (list) => list[Math.floor(Math.random() * list.length)]
 const resident = (id) => RESIDENT_BY_ID[id]
 const homeOf = (c, id) => c.houses.find((h) => h.owner === id)
+// The houses that are in town by now (the others are still on their way, with their owners).
+const inTown = (c) => c.houses.filter((h) => h.plot !== null)
+
+// If you still kept your house after a law, or were handed the roof you're standing on, you
+// swap with someone else: every law sends you searching.
+function evictYou(c, before) {
+  const mine = homeOf(c, c.player)
+  const under = c.walkers.find((w) => w.id === c.player).house // the house under your feet
+  if (before[mine.id] !== c.player && mine.id !== under) return
+  const other = pick(inTown(c).filter((h) => h !== mine && h.id !== under && before[h.id] !== c.player))
+  ;[mine.owner, other.owner] = [other.owner, mine.owner]
+}
 
 // Hands out the houses again. pairs: [which residents, which houses], in order: the residents
 // that match get houses that match, as far as they go; everyone left over gets one of the
@@ -22,8 +35,8 @@ function deal(c, pairs = []) {
   let best = null
   for (let attempt = 0; attempt < 40; attempt++) {
     const owners = {}
-    let people = RESIDENTS.map((r) => r.id)
-    let houses = c.houses.map((h) => h.id)
+    let people = inTown(c).map((h) => h.owner)
+    let houses = inTown(c).map((h) => h.id)
     for (const [who, which] of pairs) {
       const rs = shuffle(people.filter((id) => who(resident(id))))
       const hs = shuffle(houses.filter((i) => which(c.houses[i])))
@@ -34,26 +47,22 @@ function deal(c, pairs = []) {
     }
     houses = shuffle(houses)
     people.forEach((id, k) => (owners[houses[k]] = id))
-    const kept = c.houses.filter((h) => owners[h.id] === before[h.id])
+    const kept = inTown(c).filter((h) => owners[h.id] === before[h.id])
     const score = kept.length + (kept.some((h) => owners[h.id] === c.player) ? 100 : 0)
     if (!best || score < best.score) best = { owners, score }
     if (score === 0) break
   }
-  for (const h of c.houses) h.owner = best.owners[h.id]
-  // (if you still kept your house after all that, swap with someone who is not)
-  const mine = homeOf(c, c.player)
-  if (before[mine.id] === c.player) {
-    const other = pick(c.houses.filter((h) => h !== mine))
-    ;[mine.owner, other.owner] = [other.owner, mine.owner]
-  }
+  for (const h of inTown(c)) h.owner = best.owners[h.id]
+  evictYou(c, before)
 }
 
-// Moves the houses that match `which` onto the plots with the lowest `score`. Houses already on
+// Moves the houses that match `which` onto the plots (of the city as it is now) with the lowest `score`. Houses already on
 // one of those plots stay; the others swap places with whatever stood there.
 function relocate(c, which, score) {
-  const group = c.houses.filter(which)
+  const group = inTown(c).filter(which)
   const jitter = PLOTS.map(() => Math.random() * 0.01)
-  const targets = PLOTS.map((_, i) => i)
+  const targets = landOf(c.stage)
+    .filter((p) => p !== c.store) // (never onto the shop)
     .sort((a, b) => score(PLOTS[a]) + jitter[a] - score(PLOTS[b]) - jitter[b])
     .slice(0, group.length)
   const free = shuffle(targets.filter((p) => !group.some((h) => h.plot === p)))
@@ -66,74 +75,112 @@ function relocate(c, which, score) {
   }
 }
 
-const isColour = (colour) => (h) => resident(h.owner).colour === colour
-const isShape = (shape) => (h) => resident(h.owner).shape === shape
+const fromTower = (p) => Math.hypot(p.x, p.z)
 // The sun sets on the left of the screen, which is where x is small and z is large.
 const fromSun = (p) => p.x - p.z
-const fromTower = (p) => Math.hypot(p.x, p.z)
+const height = (h) => topOf(h.design, h.floors)
+// The middle height of the houses in town: the tall ones are above it, the short ones below.
+const middleHeight = (c) => {
+  const hs = inTown(c).map(height).sort((a, b) => a - b)
+  return hs[Math.floor(hs.length / 2)]
+}
 
-export const LAWS = [
-  {
-    id: 'pointy',
-    title: 'Pointy heads, round houses',
-    say: [
-      'Anyone with a pointy head gets a round house. You’re already sharp enough; no need to live in a building that agrees with you.',
-      'Cones! Pyramids! Into the round houses, all of you. Corners on your head AND on your roof? Excessive.',
-    ],
-    apply: (c) =>
-      deal(c, [
-        [(r) => POINTY.includes(r.shape), (h) => h.family === 'round'],
-        [(r) => !POINTY.includes(r.shape), (h) => h.family === 'angular'],
-      ]),
-  },
-  {
-    id: 'green',
-    title: 'Green moves to the sun',
-    say: [
-      'All green residents must move closer to the sun. The city council has approved mandatory photosynthesis.',
-      'Green citizens, you look pale. Your houses are hereby moved to the sunny edge. Photosynthesise responsibly.',
-    ],
+// --- the law maker ---
+// Most laws are made on the spot from three parts: WHO it is about, WHERE they must live now (a
+// kind of house, or a part of town), and WHY (always a silly reason). So the demon hardly ever
+// says the same thing twice, and every law is still a clue.
+
+// who: which residents. jokes: reasons that only fit them.
+const WHO = [
+  { id: 'red', name: 'Coral shapes', who: (r) => r.colour === 'red', jokes: ['Coral is too loud.', 'You look like a warning sign.'] },
+  { id: 'mint', name: 'Green shapes', who: (r) => r.colour === 'mint', jokes: ['Green means go. So go.', 'You remind me of salad.'] },
+  { id: 'lilac', name: 'Lavender shapes', who: (r) => r.colour === 'lilac', jokes: ['You smell like soap.', 'Lavender is calming. I hate calm.'] },
+  { id: 'yellow', name: 'Yellow shapes', who: (r) => r.colour === 'yellow', jokes: ['Yellow hurts my eyes.', 'You look like tiny suns. Suspicious.'] },
+  { id: 'pink', name: 'Pink shapes', who: (r) => r.colour === 'pink', jokes: ['Too cute. Very suspicious.', 'You look like bubblegum.'] },
+  { id: 'teal', name: 'Teal shapes', who: (r) => r.colour === 'teal', jokes: ['Blue or green? Pick one!', 'You remind me of a swimming pool.'] },
+  { id: 'orange', name: 'Orange shapes', who: (r) => r.colour === 'orange', jokes: ['You look juicy.', 'Orange rhymes with nothing. Shame.'] },
+  { id: 'lime', name: 'Lime shapes', who: (r) => r.colour === 'lime', jokes: ['Too sour.', 'You glow in the dark. Probably.'] },
+  { id: 'blue', name: 'Blue shapes', who: (r) => r.colour === 'blue', jokes: ['Cheer up, blue ones.', 'You look like Mondays.'] },
+  { id: 'cube', name: 'Cubes', who: (r) => r.shape === 'cube', jokes: ['Cubes can’t roll. Sad.', 'Six sides. Six problems.'] },
+  { id: 'sphere', name: 'Spheres', who: (r) => r.shape === 'sphere', jokes: ['Spheres roll too much.', 'No corners? No trust.'] },
+  { id: 'cone', name: 'Cones', who: (r) => r.shape === 'cone', jokes: ['You look like ice cream.', 'Traffic cones, all of you.'] },
+  { id: 'pyramid', name: 'Pyramids', who: (r) => r.shape === 'pyramid', jokes: ['Egypt called. It wants you back.', 'Very pointy. Very rude.'] },
+  { id: 'pointy', name: 'Pointy heads', who: (r) => POINTY.includes(r.shape), jokes: ['You keep popping my balloons.', 'Too sharp for my taste.'] },
+  { id: 'corners', name: 'Corner folk', who: (r) => r.shape === 'cube' || r.shape === 'pyramid', jokes: ['Corners collect dust.', 'Mind your edges.'] },
+]
+
+// Where they must live: a kind of house (house: which houses, worked out when the law is passed),
+// or a part of town (place: the lower the score of a spot, the better it fits).
+const WHERE = [
+  { id: 'round', short: 'round houses', long: 'round houses', house: () => (h) => h.family === 'round', jokes: ['Round houses have no corners to sulk in.'] },
+  { id: 'boxy', short: 'boxy houses', long: 'boxy houses', house: () => (h) => h.family === 'angular', jokes: ['Boxes are honest.'] },
+  { id: 'flat', short: 'flat roofs', long: 'houses with flat roofs', house: () => (h) => h.flat, jokes: ['Flat roofs are good for dancing.'] },
+  { id: 'tall', short: 'tall houses', long: 'the tall houses', house: (c) => (h) => height(h) >= middleHeight(c), jokes: ['Closer to the clouds. Closer to me.'] },
+  { id: 'short', short: 'short houses', long: 'the short houses', house: (c) => (h) => height(h) <= middleHeight(c), jokes: ['Less house to clean.'] },
+  { id: 'tower', short: 'near the tower', long: 'near my tower', place: fromTower, jokes: ['I want to watch you.', 'I get lonely up here.'] },
+  { id: 'edge', short: 'the far edges', long: 'to the far edges', place: (p) => -fromTower(p), jokes: ['I can’t see you from here. Good.'] },
+  { id: 'sun', short: 'the sunny side', long: 'to the sunny side', place: fromSun, jokes: ['Free tan included.', 'Photosynthesise!'] },
+  { id: 'shade', short: 'the shady side', long: 'to the shady side', place: (p) => -fromSun(p), jokes: ['Shady folk, shady side.'] },
+  { id: 'front', short: 'the front', long: 'to the front', place: (p) => -(p.x + p.z), jokes: ['Smile for the camera.'] },
+  { id: 'back', short: 'the back', long: 'to the back', place: (p) => p.x + p.z, jokes: ['Out of sight, out of mind.'] },
+]
+
+// The silly reasons that fit any law.
+const WHY = [
+  'Why? I sneezed.',
+  'I dreamt it. So it’s true.',
+  'My horoscope said so.',
+  'A pigeon told me.',
+  'Because it’s Tuesday.',
+  'I flipped a coin. Twice.',
+  'Don’t ask. I won’t remember.',
+  'It’s good feng shui. Probably.',
+  'Very Bauhaus. Very modern.',
+  'My cuckoo insisted.',
+  'For balance. Or chaos.',
+  'It looks nicer from up here.',
+  'Science! (Not really.)',
+  'I was bored.',
+  'It rhymes. Almost.',
+]
+
+// How the demon words it: {Who} at the start of a sentence, {who} in the middle.
+const HOUSE_ORDERS = ['{Who}: {where} only.', '{Who}, into {where}. Now!', '{Who} now live in {where}.', 'New rule: {who} get {where}.']
+const PLACE_ORDERS = ['{Who}, move {where}.', '{Who}: {where}. Go!', 'All {who}, {where}. Shoo!', '{Who}, pack up! Off {where}.']
+
+// One law made of who and where, with fresh words.
+function madeLaw(who, where) {
+  const order = pick(where.place ? PLACE_ORDERS : HOUSE_ORDERS)
+    .replace('{Who}', who.name)
+    .replace('{who}', who.name.toLowerCase())
+    .replace('{where}', where.long)
+  const why = pick([...WHY, ...WHY, ...who.jokes, ...where.jokes])
+  return {
+    id: `${who.id}-${where.id}`,
+    title: `${who.name}: ${where.short}`,
+    say: [`${order} ${why}`],
+    who: who.who,
     apply: (c) => {
-      deal(c)
-      relocate(c, isColour('mint'), fromSun)
+      if (where.place) {
+        deal(c)
+        relocate(c, (h) => who.who(resident(h.owner)), where.place)
+      } else deal(c, [[who.who, where.house(c)]])
     },
-  },
-  {
-    id: 'spheres',
-    title: 'Spheres near my tower',
-    say: [
-      'I like round things. All spheres are to be relocated closer to my tower. This is not corruption. It is taste.',
-      'Spheres, come closer. Closer. I want to see you roll past my window. Your houses have already been moved, you’re welcome.',
-    ],
-    apply: (c) => {
-      deal(c)
-      relocate(c, isShape('sphere'), fromTower)
-    },
-  },
-  {
-    id: 'yellow',
-    title: 'Yellow to the edges',
-    say: [
-      'Yellow is far too loud for the city centre. All yellow residents: as far from my tower as possible! Think about what you’ve done.',
-      'Who approved all this yellow? Not me. Yellow houses go to the far edges of town, where I can’t see them squinting at me.',
-    ],
-    // the farthest spots from the tower
-    apply: (c) => {
-      deal(c)
-      relocate(c, isColour('yellow'), (p) => -fromTower(p))
-    },
-  },
+  }
+}
+
+// A few special laws, which move everyone at once.
+const SPECIAL = [
   {
     id: 'tall',
-    title: 'Tall heads, tall houses',
-    say: [
-      'Cones are the tallest of you, so cones get the tallest houses. Spheres are the roundest, so they get the shortest, in case they roll off.',
-      'Height discrimination is now mandatory! Cones: the four tallest houses. Spheres: the four shortest. Everyone else: somewhere in the middle, like your personalities.',
-    ],
+    title: 'Cones up, spheres down',
+    say: ['Cones get the tallest houses. Spheres get the shortest. In case they roll off.', 'Tall heads, tall houses. Spheres: stay low.'],
+    who: (r) => r.shape === 'cone' || r.shape === 'sphere',
     apply: (c) => {
-      const byHeight = [...c.houses].sort((a, b) => topOf(b.design, b.floors) - topOf(a.design, a.floors))
-      const tallest = byHeight.slice(0, 4)
-      const shortest = byHeight.slice(-4)
+      const byHeight = inTown(c).sort((a, b) => height(b) - height(a))
+      const n = Math.max(1, Math.floor(byHeight.length / 4))
+      const tallest = byHeight.slice(0, n)
+      const shortest = byHeight.slice(-n)
       deal(c, [
         [(r) => r.shape === 'cone', (h) => tallest.includes(h)],
         [(r) => r.shape === 'sphere', (h) => shortest.includes(h)],
@@ -141,74 +188,112 @@ export const LAWS = [
     },
   },
   {
-    id: 'boxes',
-    title: 'Cubes live in boxes',
-    say: [
-      'Cubes must live in boxes. Flat roofs, straight walls, no surprises. Boxes inside boxes. It’s called architecture, look it up.',
-      'A cube on a dome looks ridiculous. Cubes: flat-topped houses only. Everybody else: shuffle!',
-    ],
-    apply: (c) => deal(c, [[(r) => r.shape === 'cube', (h) => h.flat]]),
-  },
-  {
     id: 'chairs',
     title: 'Musical houses',
-    say: [
-      'Musical chairs, but houses! Cubes take the spheres’ houses, spheres the cones’, cones the pyramids’, pyramids the cubes’. Same colour, new life.',
-      'Everyone, move one shape along! Cube to sphere, sphere to cone, cone to pyramid, pyramid back to cube. Keep your colour, lose your sofa.',
-    ],
+    say: ['Musical houses! Cubes take the spheres’ homes. Spheres take the cones’. And so on. Same colour only.', 'Everyone, one shape along! Cubes get the spheres’ houses, and so on. Keep your colour.'],
+    who: () => true,
     apply: (c) => {
-      const owners = c.houses.map((h) => {
-        const { shape, colour } = resident(h.owner)
-        // the house of a sphere goes to the cube of the same colour, and so on
-        const taker = SHAPES[(SHAPES.indexOf(shape) + SHAPES.length - 1) % SHAPES.length]
-        return `${colour}-${taker}`
-      })
-      c.houses.forEach((h, i) => (h.owner = owners[i]))
+      const before = Object.fromEntries(c.houses.map((h) => [h.id, h.owner]))
+      // the house of a sphere goes to the cube of the same colour, and so on, among those of each
+      // colour who are in town; whoever is the only one of their colour goes round with the
+      // others like them
+      const byColour = {}
+      for (const h of inTown(c)) (byColour[resident(h.owner).colour] ??= []).push(h)
+      const groups = Object.values(byColour)
+      const lonely = groups.filter((g) => g.length === 1).flat()
+      for (const group of [...groups.filter((g) => g.length > 1), lonely]) {
+        group.sort((a, b) => SHAPES.indexOf(resident(a.owner).shape) - SHAPES.indexOf(resident(b.owner).shape))
+        const owners = group.map((h) => h.owner)
+        group.forEach((h, i) => (h.owner = owners[(i + owners.length - 1) % owners.length]))
+      }
+      evictYou(c, before)
     },
   },
   {
     id: 'farnear',
     title: 'Near swaps with far',
-    say: [
-      'I’m lonely. Whoever lives nearest my tower swaps with whoever lives farthest away. And so on. Love thy neighbour, from a distance.',
-      'The neighbours close to me are boring and the ones far away are suspicious. Swap! Nearest with farthest, second nearest with second farthest…',
-    ],
+    say: ['Near my tower? Swap with someone far away. I need new faces.', 'Close ones go far. Far ones come close. I’m bored.'],
+    who: () => true,
     apply: (c) => {
-      const order = shuffle(c.houses).sort((a, b) => fromTower(PLOTS[a.plot]) - fromTower(PLOTS[b.plot]))
+      const order = shuffle(inTown(c)).sort((a, b) => fromTower(PLOTS[a.plot]) - fromTower(PLOTS[b.plot]))
+      const before = Object.fromEntries(c.houses.map((h) => [h.id, h.owner]))
       const owners = order.map((h) => h.owner).reverse()
       order.forEach((h, i) => (h.owner = owners[i]))
+      evictYou(c, before)
     },
   },
 ]
 
-// The six laws of the day, in a random order.
-export const lawsOfTheDay = () => shuffle(LAWS).slice(0, 6)
+// Every law the demon could pass: all the made ones, and the special ones.
+const LAWS = [...WHO.flatMap((who) => WHERE.map((where) => ({ id: `${who.id}-${where.id}`, who: who.who }))), ...SPECIAL]
+
+// The laws of the last few games, remembered (if the browser lets us), so a new game brings new laws.
+const RECENT_KEY = 'cuckoo-recent-laws'
+const RECENT_MAX = 40
+function recentLaws() {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT_KEY)) ?? []
+  } catch {
+    return []
+  }
+}
+function remember(id) {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify([id, ...recentLaws().filter((r) => r !== id)].slice(0, RECENT_MAX)))
+  } catch {
+    // (no storage: it simply forgets)
+  }
+}
+
+// The demon thinks up the next law: one it hasn't passed today, nor lately, about at least two
+// residents who are in town (so it does something), in fresh words.
+export function nextLaw(c) {
+  const today = c.laws.map((l) => l.id)
+  const recent = recentLaws()
+  const residents = inTown(c).map((h) => resident(h.owner))
+  const fits = LAWS.filter((law) => !today.includes(law.id) && residents.filter(law.who).length >= 2)
+  const fresh = fits.filter((law) => !recent.includes(law.id))
+  const { id } = pick(fresh.length ? fresh : fits.length ? fits : LAWS)
+  remember(id)
+  const special = SPECIAL.find((s) => s.id === id)
+  if (special) return special
+  const [whoId, whereId] = id.split('-')
+  return madeLaw(
+    WHO.find((w) => w.id === whoId),
+    WHERE.find((w) => w.id === whereId),
+  )
+}
 
 // What the demon says before and after the law, so it never sounds quite the same twice.
 const OPENERS = [
-  '*Yawn*… CUCKOO! Hear ye, hear ye!',
-  'Ahem. Ahem. AHEM. Thank you.',
-  'Good news! Terrible news! Same news!',
-  'I had a dream. It is now legislation.',
-  'CUCKOO! Your favourite tyrant is back!',
-  'Wake up, little shapes, I have an idea.',
-  'By the power vested in me by me:',
+  'CUCKOO! Hear ye!',
+  '*Yawn*… new law!',
+  'Ahem. AHEM.',
+  'Good news! Bad news! Same news!',
+  'I had a dream.',
+  'Your favourite tyrant is back!',
+  'Wake up, little shapes!',
+  'By the power of me:',
+  'Attention, please!',
+  'Big announcement. Tiny demon.',
 ]
 const CLOSERS = [
-  'That is all. Carry on.',
-  'No questions. Questions are illegal now.',
-  'Back to my nap. Obey!',
-  'Effective immediately. Effective forever. Well, for an hour.',
-  'Don’t thank me. Actually, do.',
-  'I’ve already forgotten why. Doesn’t matter!',
+  'That is all.',
+  'No questions.',
+  'Back to my nap.',
+  'Valid for one hour. Maybe.',
+  'You’re welcome.',
+  'I already forgot why.',
+  'Obey! Then hop.',
+  'CUCKOO!',
 ]
 
 export const announce = (law) => ({ opener: pick(OPENERS), text: pick(law.say), closer: pick(CLOSERS) })
 
 // The small notes that pop up when something happens to you.
 export const NOTES = {
-  evicted: ['Evicted! Find your new home.', 'This isn’t yours any more. Start hopping!', 'New law, new home. Off you bounce!', 'Your desk now belongs to someone else.'],
-  home: ['Home! Back to work.', 'This one’s yours. Desk, sweet desk.', 'You’re home. Look busy.', 'Found it! Work resumes.'],
+  evicted: ['Evicted! Find your new home.', 'This isn’t yours any more. Start hopping!', 'New law, new home. Off you bounce!', 'Your fridge now belongs to someone else.'],
+  home: ['Home! Now go shopping.', 'This one’s yours. Fridge, sweet fridge.', 'You’re home. The shop is waiting.', 'Found it! Off to the shop.'],
   bump: [
     (o) => `Boing! This is ${o}’s house.`,
     (o) => `Nope. ${o} lives here.`,
@@ -226,34 +311,29 @@ export const note = (kind, ...args) => {
 }
 export const ownerNote = (id) => note('bump', nameOf(id))
 
-// The demon's verdict at sunset. ratio: the share of the day you spent working.
-const HOME_GOOD = [
-  'What a surprisingly competent citizen. I’m almost disappointed.',
-  'You worked more than I slept. Disgusting. Well done.',
-  'A model resident! I shall have a tiny statue of you made, and then lose it.',
-  'Productive, punctual, perfectly shaped. Are you sure you live in MY city?',
+// The demon's verdict at sunset: whether you made it home, and how many groceries you got there.
+const ALL_DONE = [
+  'All six! Your fridge is full. I’m almost proud.',
+  'Every single thing. Show-off.',
+  'A full list! I shall make a law against you tomorrow.',
 ]
-const HOME_MEH = [
-  'Half working, half wandering. The backbone of any great city: mediocrity.',
-  'You spent the day as a part-time citizen and a part-time tourist. Bold.',
-  'Not bad. Not good. Beautifully average, like a beige wall.',
-  'You found your home eventually. So does water. Water doesn’t get a medal either.',
+const SOME_DONE = [
+  'Half a dinner. Very modern.',
+  'Some groceries. Some hunger. Balance!',
+  'Not bad. Not good. Like a beige wall.',
 ]
-const HOME_BAD = [
-  'You made it home, but you worked about as much as a glorified houseplant.',
-  'Home just in time for bed. Very efficient. For a sofa.',
-  'You spent the whole day searching for a house you had this morning. Iconic.',
-  'Congratulations on your career as a professional pedestrian.',
+const NONE_DONE = [
+  'Home, but the fridge is empty. Enjoy your air soup.',
+  'Zero groceries. Bold diet.',
+  'You went shopping and bought… nothing. Iconic.',
 ]
 const HOMELESS = [
-  'Homelessness is caused by poor urban planning. I did the planning. So, by elimination, it’s your fault.',
-  'You are now a public monument. Stand still. Pigeons will be along shortly.',
-  'Sleeping outside is very good for the bones. Probably. I’ve never had bones.',
-  'The city’s first open-air resident! Very modern. Very Bauhaus. Very cold.',
-  'Don’t worry. Tomorrow I may pass a law that the street is your house. Or I may not. Goodnight!',
-  'I have declared you a roundabout. Traffic will go around you. Sleep well.',
+  'You are now a public monument. Pigeons are on their way.',
+  'Sleeping outside is good for the bones. Probably.',
+  'The city’s first open-air resident! Very Bauhaus. Very cold.',
+  'I declare you a roundabout. Sleep well.',
 ]
-export function verdict(home, ratio) {
+export function verdict(home, delivered) {
   if (!home) return pick(HOMELESS)
-  return pick(ratio >= 0.6 ? HOME_GOOD : ratio >= 0.3 ? HOME_MEH : HOME_BAD)
+  return pick(delivered >= 6 ? ALL_DONE : delivered > 0 ? SOME_DONE : NONE_DONE)
 }

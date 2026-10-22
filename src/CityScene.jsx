@@ -5,10 +5,10 @@
 // they rest, on anyone else's they keep bouncing.
 // The sun sinks and the light fades a little every hour; at 18:00 it is night.
 
-import { useEffect, useMemo, useRef } from 'react'
-import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { useMemo, useRef } from 'react'
+import { Canvas, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
-import { CELL, CITY_SIZE, COLOUR_BY_ID, GRID, PLOTS, RESIDENT_BY_ID, TOWER, isHidden, toWorld } from './city.js'
+import { CELL, CITY_SIZE, COLOUR_BY_ID, GRID, PLOTS, RESIDENT_BY_ID, STAGES, TOWER, areaOf, isHidden, isOpen, isTower, toWorld } from './city.js'
 import { TALK_SECONDS, city, duskOf, isHome, sunOf, tickCity } from './cityGame.js'
 import { topOf } from './town.js'
 import { anchors, view } from './anchors.js'
@@ -27,11 +27,13 @@ import {
   OAK,
   PLOT_PAD,
   POCHE,
+  RED,
   SKY_LIGHT,
   SUN,
   SUNSET_SUN,
   TOWER_SLITS,
   TOWER_STONE,
+  PAPER,
   WINDOW_LIT,
 } from './palette.js'
 
@@ -68,15 +70,21 @@ const UP = new THREE.Vector3(-1, 2, -1).normalize()
 // Room left for the little panel along the top, and around the edges, in pixels.
 const MARGIN = { top: 62, bottom: 16, side: 16 }
 
-// How far the camera zooms in and where it looks, so the whole city (with the tower and the
-// lonely tile out front) fills the window.
-function fitOf(size) {
-  const h = CITY_SIZE / 2 + 0.4
+// How far the camera zooms in and where it looks, so the whole city as it is now (with the tower,
+// and once it has fully grown, the lonely tile out front) fills the window.
+function fitOf(size, stage) {
+  const a = areaOf(stage)
   const points = [
-    ...[-h, h].flatMap((x) => [-h, h].flatMap((z) => [new THREE.Vector3(x, 0, z), new THREE.Vector3(x, -1.2, z)])),
+    ...[-1, 1].flatMap((sx) =>
+      [-1, 1].flatMap((sz) => {
+        const x = a.x + sx * (a.w / 2 + 0.4)
+        const z = a.z + sz * (a.d / 2 + 0.4)
+        return [new THREE.Vector3(x, 0, z), new THREE.Vector3(x, -1.2, z)]
+      }),
+    ),
     new THREE.Vector3(0, TOP + 3.4, 0),
-    new THREE.Vector3(STRANDED.x + 1, -0.6, STRANDED.z + 1),
   ]
+  if (stage === STAGES.length - 1) points.push(new THREE.Vector3(STRANDED.x + 1, -0.6, STRANDED.z + 1))
   const xs = points.map((p) => p.dot(RIGHT))
   const ys = points.map((p) => p.dot(UP))
   const w = Math.max(...xs) - Math.min(...xs)
@@ -88,18 +96,24 @@ function fitOf(size) {
   return { zoom, target: RIGHT.clone().multiplyScalar(cx).add(UP.clone().multiplyScalar(cy)) }
 }
 
+// The camera glides out smoothly whenever the city grows.
+const BACK = new THREE.Vector3(40, 40, 40)
 function FitCamera() {
-  const camera = useThree((s) => s.camera)
-  const size = useThree((s) => s.size)
-  useEffect(() => {
-    const { zoom, target } = fitOf(size)
-    camera.zoom = zoom
-    camera.position.copy(target).add(new THREE.Vector3(40, 40, 40))
-    camera.lookAt(target)
+  const fit = useRef(null)
+  useFrame(({ camera, size }, dt) => {
+    const want = fitOf(size, city.stage)
+    const f = (fit.current ??= { zoom: want.zoom, target: want.target.clone(), u: '' })
+    const k = 1 - Math.exp(-dt * 2)
+    f.zoom += (want.zoom - f.zoom) * k
+    f.target.lerp(want.target, k)
+    camera.zoom = f.zoom
+    camera.position.copy(f.target).add(BACK)
+    camera.lookAt(f.target)
     camera.updateProjectionMatrix()
     // how many pixels a metre takes on screen, for the panels pinned to the city (anchors.js)
-    document.documentElement.style.setProperty('--u', `${zoom}px`)
-  }, [camera, size])
+    const u = `${f.zoom.toFixed(2)}px`
+    if (u !== f.u) document.documentElement.style.setProperty('--u', (f.u = u))
+  })
   return null
 }
 
@@ -149,32 +163,52 @@ function Lights() {
 // --- the ground ---
 
 // A thick slab with mauve cut sides, like a section drawing, with thin joints showing the grid,
-// a pale raised pad for every spot, and lavender paving round the tower and behind it.
+// a pale raised pad for every spot, and lavender paving round the tower and behind it. As the
+// city grows, the slab stretches and the new pads rise into place.
+const CELLS = []
+for (let r = 0; r < GRID; r++) for (let c = 0; c < GRID; c++) CELLS.push({ c, r, ...toWorld(c, r), plaza: isHidden(c, r) || isTower(c, r) })
+
 function Ground() {
   const pad = useMemo(() => new THREE.BoxGeometry(CELL - 0.22, 0.12, CELL - 0.22), [])
-  const plaza = useMemo(() => {
-    const cells = []
-    for (let r = 0; r < GRID; r++) for (let c = 0; c < GRID; c++) if (isHidden(c, r) || (c === 2 && r === 2)) cells.push(toWorld(c, r))
-    return cells
-  }, [])
-  const slab = 1.2
+  const slab = useRef()
+  const pads = useRef([])
+  const thick = 1.2
+  const start = areaOf(city.stage)
+  useFrame((_, dt) => {
+    const a = areaOf(city.stage)
+    const s = slab.current
+    const k = 1 - Math.exp(-dt * 3)
+    s.scale.x += (a.w + 0.3 - s.scale.x) * k
+    s.scale.z += (a.d + 0.3 - s.scale.z) * k
+    s.position.x += (a.x - s.position.x) * k
+    s.position.z += (a.z - s.position.z) * k
+    CELLS.forEach((cell, i) => {
+      const m = pads.current[i]
+      if (!m) return
+      const v = THREE.MathUtils.damp(m.scale.x, isOpen(city.stage, cell.c, cell.r) ? 1 : 0.001, 4, dt)
+      m.scale.setScalar(v)
+      m.visible = v > 0.01
+    })
+  })
   return (
     <group>
-      <mesh position={[0, -slab / 2, 0]} receiveShadow>
-        <boxGeometry args={[CITY_SIZE + 0.3, slab, CITY_SIZE + 0.3]} />
+      <mesh ref={slab} position={[start.x, -thick / 2, start.z]} scale={[start.w + 0.3, 1, start.d + 0.3]} receiveShadow>
+        <boxGeometry args={[1, thick, 1]} />
         {/* the six faces: right, left, top, bottom, front, back */}
         {[POCHE, POCHE, GRID_LINE, POCHE, POCHE, POCHE].map((colour, i) => (
           <meshStandardMaterial key={i} attach={`material-${i}`} color={colour} roughness={0.9} />
         ))}
       </mesh>
-      {PLOTS.map((p, i) => (
-        <mesh key={i} geometry={pad} position={[p.x, 0.06, p.z]} receiveShadow>
-          <meshStandardMaterial color={PLOT_PAD} roughness={0.9} />
-        </mesh>
-      ))}
-      {plaza.map((p, i) => (
-        <mesh key={i} geometry={pad} position={[p.x, 0.06, p.z]} receiveShadow>
-          <meshStandardMaterial color={TOWER_STONE} roughness={0.9} />
+      {CELLS.map((cell, i) => (
+        <mesh
+          key={i}
+          ref={(m) => (pads.current[i] = m)}
+          geometry={pad}
+          position={[cell.x, 0.06, cell.z]}
+          scale={isOpen(city.stage, cell.c, cell.r) ? 1 : 0.001}
+          receiveShadow
+        >
+          <meshStandardMaterial color={cell.plaza ? TOWER_STONE : PLOT_PAD} roughness={0.9} />
         </mesh>
       ))}
     </group>
@@ -191,7 +225,7 @@ function Tree({ index }) {
   const birds = useRef([])
   const angry = useRef({ seen: 0, t: 99 })
   useFrame(({ clock }, dt) => {
-    const empty = !city.houses.some((h) => h.plot === index)
+    const empty = isOpen(city.stage, p.c, p.r) && index !== city.store && !city.houses.some((h) => h.plot === index)
     const s = THREE.MathUtils.damp(tree.current.scale.x, empty ? 1 : 0.001, 6, dt)
     tree.current.scale.setScalar(s)
     tree.current.visible = s > 0.01
@@ -214,7 +248,7 @@ function Tree({ index }) {
     })
   })
   return (
-    <group ref={tree} position={[p.x, 0.12, p.z]}>
+    <group ref={tree} position={[p.x, 0.12, p.z]} scale={isOpen(city.stage, p.c, p.r) ? 1 : 0.001}>
       <mesh position={[0, 0.45, 0]} castShadow>
         <cylinderGeometry args={[0.07, 0.1, 0.9, 8]} />
         <meshStandardMaterial color={OAK} />
@@ -335,20 +369,34 @@ const roofs = []
 export const houseTop = (h) => 0.12 + topOf(h.design, h.floors)
 
 // One plain stone house, gliding to whatever spot it has been given (and rising a little while
-// it travels, so it hops over the others). Whoever stands on it rides along.
+// it travels, so it hops over the others). Whoever stands on it rides along. A house whose owner
+// hasn't arrived yet isn't there; when they arrive, it drops in from the sky.
+const DROP = 16 // metres above its spot that a new house drops in from
+
 function House({ index }) {
   const house = city.houses[index]
   const outer = useRef()
   const pose = useRef(null)
+  const seen = useRef(false) // whether this house has been drawn before
 
   useFrame((_, dt) => {
+    const arrived = house.plot !== null
+    outer.current.visible = arrived
+    if (!arrived) {
+      roofs[index] = null
+      seen.current = true
+      return
+    }
     const plot = PLOTS[house.plot]
-    const p = (pose.current ??= { x: plot.x, z: plot.z })
+    // (the houses already in town when the city is first drawn are simply there)
+    const p = (pose.current ??= { x: plot.x, z: plot.z, drop: seen.current ? DROP : 0 })
+    seen.current = true
     const k = 1 - Math.exp(-dt * 2.4)
     p.x += (plot.x - p.x) * k
     p.z += (plot.z - p.z) * k
+    p.drop = THREE.MathUtils.damp(p.drop, 0, 3, dt)
     const away = Math.hypot(plot.x - p.x, plot.z - p.z)
-    const y = 0.12 + Math.min(away, 5) * 0.6
+    const y = 0.12 + Math.min(away, 5) * 0.6 + p.drop
     outer.current.position.set(p.x, y, p.z)
     roofs[index] = { x: p.x, y: y + topOf(house.design, house.floors), z: p.z }
   })
@@ -364,6 +412,9 @@ function House({ index }) {
 
 const SIZE = 1.3 // the residents are drawn a little bigger than life, so you can't miss them
 const BODY = { cube: 0.275, sphere: 0.32, cone: 0.375, pyramid: 0.3 } // half their height
+// The colours of your ring: home, and not home.
+const MINT_COLOUR = new THREE.Color(MINT)
+const RED_COLOUR = new THREE.Color(RED)
 
 function Body({ shape, colour }) {
   return (
@@ -383,12 +434,14 @@ function standOn(w, v) {
     const roof = roofs[w.house]
     return roof ? v.set(roof.x, roof.y, roof.z) : null
   }
+  if (w.tree === city.store && storeRoof.y) return v.set(storeRoof.x, storeRoof.y, storeRoof.z)
   const p = PLOTS[w.tree]
   return v.set(p.x, 0.12 + TREE_TOP, p.z)
 }
 
 // One resident, on a roof. It hops from roof to roof in an arc, bounces on any roof that isn't
-// its own, and rests on its own. You are a little bigger, with a mint ring around your feet.
+// its own, and rests on its own. You are a little bigger, with a ring around your feet: mint
+// when you're home, coral red when you're not.
 function Walker({ index }) {
   const w = city.walkers[index]
   const r = RESIDENT_BY_ID[w.id]
@@ -400,6 +453,9 @@ function Walker({ index }) {
 
   useFrame(({ clock }, dt) => {
     const t = clock.elapsedTime
+    // not moved in yet: nowhere to be seen
+    group.current.visible = ring.current.visible = !w.away
+    if (w.away) return
     // (worked out every frame, because you only pick your shape once the city is already here)
     const you = w.id === city.player && city.phase !== 'select'
     const night = city.phase === 'night'
@@ -444,10 +500,14 @@ function Walker({ index }) {
     const squash = night ? 0.8 : 1
     group.current.scale.set(s, s * squash, s)
     group.current.position.set(feet.x, feet.y + bounce + BODY[r.shape] * s * squash, feet.z)
+    // what you carry floats just above your head (the page pins the grocery there)
+    if (you) carryPoint.splice(0, 3, feet.x, feet.y + bounce + BODY[r.shape] * s * 2 + 0.7, feet.z)
     // everyone has a ring, but only yours is big enough to see (the others are always ready,
     // so nothing new has to be prepared when you pick your shape)
     ring.current.position.set(feet.x, feet.y + 0.03, feet.z)
     ring.current.scale.setScalar(you ? 1 + 0.08 * Math.sin(t * 4) : 0.0001)
+    // mint while you're home, coral red while you're not (it fades from one to the other)
+    ring.current.material.color.lerp(isHome(w) ? MINT_COLOUR : RED_COLOUR, 1 - Math.exp(-dt * 8))
   })
 
   return (
@@ -460,6 +520,64 @@ function Walker({ index }) {
         <meshBasicMaterial color={MINT} side={THREE.DoubleSide} />
       </mesh>
     </>
+  )
+}
+
+// --- the grocery shop ---
+
+// Where the shop's roof is right now (whoever shops stands on it), and where the page pins its
+// sign and the grocery you carry. They are changed in place, every frame.
+const storeRoof = { x: 0, y: 0, z: 0 }
+export const shopSign = [0, 0, 0]
+export const carryPoint = [0, 0, 0]
+const SHOP = { w: 2.5, h: 1.4 } // its width and the height of its walls
+const SHOP_TOP = 0.12 + SHOP.h + 0.16 // the top of its roof, from the ground
+
+// A low, pale shop with a mint roof, glowing shop windows and coral and cream striped awnings on
+// its two front walls. When the city grows it glides out onto the new land, like a house.
+function Store() {
+  const outer = useRef()
+  const pose = useRef(null)
+  useFrame((_, dt) => {
+    const plot = PLOTS[city.store]
+    const p = (pose.current ??= { x: plot.x, z: plot.z })
+    const k = 1 - Math.exp(-dt * 2.4)
+    p.x += (plot.x - p.x) * k
+    p.z += (plot.z - p.z) * k
+    const y = 0.12 + Math.min(Math.hypot(plot.x - p.x, plot.z - p.z), 5) * 0.6
+    outer.current.position.set(p.x, y, p.z)
+    Object.assign(storeRoof, { x: p.x, y: y - 0.12 + SHOP_TOP, z: p.z })
+    // (the sign hangs at its front corner, clear of whoever stands on the roof)
+    shopSign.splice(0, 3, p.x + SHOP.w / 2, y + SHOP.h * 0.4, p.z + SHOP.w / 2)
+  })
+  const stripes = [0, 1, 2, 3, 4]
+  const stripe = SHOP.w / stripes.length
+  return (
+    <group ref={outer}>
+      <mesh position={[0, SHOP.h / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[SHOP.w, SHOP.h, SHOP.w]} />
+        <meshStandardMaterial color={PAPER} roughness={0.8} />
+      </mesh>
+      <mesh position={[0, SHOP.h + 0.08, 0]} castShadow>
+        <boxGeometry args={[SHOP.w + 0.2, 0.16, SHOP.w + 0.2]} />
+        <meshStandardMaterial color={MINT} roughness={0.6} />
+      </mesh>
+      {/* a big shop window on each front wall (+x and +z), and a striped awning above it */}
+      {[0, Math.PI / 2].map((turn) => (
+        <group key={turn} rotation={[0, turn, 0]}>
+          <mesh position={[0, 0.55, SHOP.w / 2 + 0.01]}>
+            <boxGeometry args={[SHOP.w * 0.7, 0.7, 0.02]} />
+            <meshStandardMaterial color={WINDOW_LIT} emissive={WINDOW_LIT} emissiveIntensity={0.5} />
+          </mesh>
+          {stripes.map((i) => (
+            <mesh key={i} position={[-SHOP.w / 2 + stripe * (i + 0.5), 1.08, SHOP.w / 2 + 0.25]} rotation={[0.5, 0, 0]} castShadow>
+              <boxGeometry args={[stripe, 0.05, 0.6]} />
+              <meshStandardMaterial color={i % 2 ? PAPER : RED} roughness={0.7} />
+            </mesh>
+          ))}
+        </group>
+      ))}
+    </group>
   )
 }
 
@@ -535,6 +653,7 @@ export default function CityScene() {
       {city.walkers.map((w, i) => (
         <Walker key={w.id} index={i} />
       ))}
+      <Store />
       <StrandedTile />
       <PlaceAnchors />
     </Canvas>
