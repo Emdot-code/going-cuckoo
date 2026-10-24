@@ -102,6 +102,34 @@ export const woodTexture = () =>
     }),
   )
 
+// The grocery shop's sign: SHOP in coral capitals on a cream board, four times as wide as it is
+// tall. It is painted again once the page's round font has loaded.
+export const shopSignTexture = () =>
+  cached('shop-sign', () => {
+    const c = document.createElement('canvas')
+    c.width = 512
+    c.height = 128
+    const paint = () => {
+      const g = c.getContext('2d')
+      g.fillStyle = PAPER
+      g.fillRect(0, 0, 512, 128)
+      g.fillStyle = RED
+      g.font = "800 92px 'Nunito', system-ui, sans-serif"
+      g.textAlign = 'center'
+      g.textBaseline = 'middle'
+      g.fillText('SHOP', 256, 70)
+    }
+    paint()
+    const t = new THREE.CanvasTexture(c)
+    t.colorSpace = THREE.SRGBColorSpace
+    t.anisotropy = 8
+    document.fonts?.load("800 92px 'Nunito'").then(() => {
+      paint()
+      t.needsUpdate = true
+    })
+    return t
+  })
+
 // The artworks in the frames, and the drawings on the desks.
 export const artTexture = (kind) => cached('art-' + kind, () => canvasTexture(256, (g, s) => ART[kind](g, s)))
 

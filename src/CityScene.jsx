@@ -14,6 +14,7 @@ import { topOf } from './town.js'
 import { anchors, view } from './anchors.js'
 import { Daemon } from './CuckooClock.jsx'
 import { Shape } from './BuildingShape.jsx'
+import { shopSignTexture } from './textures.js'
 import {
   CLOCK_GREEN,
   FLOOR,
@@ -525,17 +526,20 @@ function Walker({ index }) {
 
 // --- the grocery shop ---
 
-// Where the shop's roof is right now (whoever shops stands on it), and where the page pins its
-// sign and the grocery you carry. They are changed in place, every frame.
+// Where the tip of the shop's roof is right now (whoever shops stands on it), and where the page
+// pins the grocery you carry. They are changed in place, every frame.
 const storeRoof = { x: 0, y: 0, z: 0 }
-export const shopSign = [0, 0, 0]
 export const carryPoint = [0, 0, 0]
-const SHOP = { w: 2.5, h: 1.4 } // its width and the height of its walls
-const SHOP_TOP = 0.12 + SHOP.h + 0.16 // the top of its roof, from the ground
+const SHOP = { w: 2.5, h: 1.7, roof: 1.2 } // its width, the height of its walls and of its roof
+const SHOP_TOP = 0.12 + SHOP.h + SHOP.roof // the tip of its roof, from the ground
+const ROOF_BANDS = 4 // the roof's stripes, red and white in turn
+const ROOF_R = ((SHOP.w + 0.3) / 2) * Math.SQRT2 // from the roof's middle to its corners, at the eaves
 
-// A low, pale shop with a mint roof, glowing shop windows and coral and cream striped awnings on
-// its two front walls. When the city grows it glides out onto the new land, like a house.
+// A pale shop with a pyramid roof in red and white stripes, glowing shop windows, striped
+// awnings and a SHOP sign on its two front walls. When the city grows it glides out onto the new
+// land, like a house.
 function Store() {
+  const sign = useMemo(shopSignTexture, [])
   const outer = useRef()
   const pose = useRef(null)
   useFrame((_, dt) => {
@@ -547,8 +551,6 @@ function Store() {
     const y = 0.12 + Math.min(Math.hypot(plot.x - p.x, plot.z - p.z), 5) * 0.6
     outer.current.position.set(p.x, y, p.z)
     Object.assign(storeRoof, { x: p.x, y: y - 0.12 + SHOP_TOP, z: p.z })
-    // (the sign hangs at its front corner, clear of whoever stands on the roof)
-    shopSign.splice(0, 3, p.x + SHOP.w / 2, y + SHOP.h * 0.4, p.z + SHOP.w / 2)
   })
   const stripes = [0, 1, 2, 3, 4]
   const stripe = SHOP.w / stripes.length
@@ -558,16 +560,25 @@ function Store() {
         <boxGeometry args={[SHOP.w, SHOP.h, SHOP.w]} />
         <meshStandardMaterial color={PAPER} roughness={0.8} />
       </mesh>
-      <mesh position={[0, SHOP.h + 0.08, 0]} castShadow>
-        <boxGeometry args={[SHOP.w + 0.2, 0.16, SHOP.w + 0.2]} />
-        <meshStandardMaterial color={MINT} roughness={0.6} />
-      </mesh>
-      {/* a big shop window on each front wall (+x and +z), and a striped awning above it */}
+      {/* the pyramid roof: four bands, each a four-sided slice of the pyramid, red and white in turn */}
+      {Array.from({ length: ROOF_BANDS }, (_, i) => (
+        <mesh key={i} position={[0, SHOP.h + (SHOP.roof * (i + 0.5)) / ROOF_BANDS, 0]} rotation={[0, Math.PI / 4, 0]} castShadow>
+          <cylinderGeometry args={[ROOF_R * (1 - (i + 1) / ROOF_BANDS), ROOF_R * (1 - i / ROOF_BANDS), SHOP.roof / ROOF_BANDS, 4]} />
+          <meshStandardMaterial color={i % 2 ? PAPER : RED} roughness={0.7} flatShading />
+        </mesh>
+      ))}
+      {/* on each front wall (+x and +z): a big shop window, a striped awning above it, and the sign */}
       {[0, Math.PI / 2].map((turn) => (
         <group key={turn} rotation={[0, turn, 0]}>
           <mesh position={[0, 0.55, SHOP.w / 2 + 0.01]}>
             <boxGeometry args={[SHOP.w * 0.7, 0.7, 0.02]} />
             <meshStandardMaterial color={WINDOW_LIT} emissive={WINDOW_LIT} emissiveIntensity={0.5} />
+          </mesh>
+          <mesh position={[0, 1.44, SHOP.w / 2 + 0.03]}>
+            <boxGeometry args={[1.5, 0.375, 0.04]} />
+            {[RED, RED, RED, RED, null, RED].map((colour, k) =>
+              colour ? <meshStandardMaterial key={k} attach={`material-${k}`} color={colour} /> : <meshStandardMaterial key={k} attach={`material-${k}`} map={sign} roughness={0.8} />,
+            )}
           </mesh>
           {stripes.map((i) => (
             <mesh key={i} position={[-SHOP.w / 2 + stripe * (i + 0.5), 1.08, SHOP.w / 2 + 0.25]} rotation={[0.5, 0, 0]} castShadow>

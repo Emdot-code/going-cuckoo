@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react'
 import CityScene from './CityScene.jsx'
 import SafeView from './SafeView.jsx'
-import { BirdShout, Carried, CityEnd, CityNote, CitySky, DemonBubble, GroceryList, HourBar, IntroFlight, LawInscription, MuteButton, NorthArrow, ShopSign, Sleepers, StartScreen, TowerDisplay } from './CityHud.jsx'
+import { BirdShout, Carried, CityEnd, CityNote, CitySky, DemonBubble, GroceryList, HourBar, IntroFlight, LawInscription, MuteButton, NorthArrow, Sleepers, StartScreen, TowerDisplay } from './CityHud.jsx'
 import { city, press, resetCity, startCity } from './cityGame.js'
 
 // Which way each key hops: one spot along the grid.
@@ -55,7 +55,6 @@ export default function CityApp() {
       </SafeView>
       <TowerDisplay />
       <LawInscription />
-      <ShopSign />
       <Carried />
       <BirdShout />
       <Sleepers />

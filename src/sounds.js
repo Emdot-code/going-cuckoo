@@ -1,7 +1,7 @@
 // The game's sounds, made on the spot by the browser (Web Audio), so there are no sound files to
 // load: a soft ping for every hop, crows cawing when you land on a tree, the shop's bell, a happy
-// tune when your groceries are home, and the clock tower's bells when the demon pops out with a
-// new law. A mute button turns them all off (and on again).
+// tune when your groceries are home, the clock tower's bells when the demon pops out with a new
+// law, and the demon's voice reading it. A mute button turns them all off (and on again).
 //
 // Browsers only allow sound once you have clicked or pressed something on the page; picking your
 // shape on the start screen does that, so by the time the game makes a sound, it is allowed.
@@ -21,6 +21,7 @@ export const isMuted = () => muted
 export function setMuted(on) {
   muted = on
   if (master) master.gain.setTargetAtTime(on ? 0 : 1, audio.currentTime, 0.02)
+  if (on) window.speechSynthesis?.cancel() // the demon stops reading its law, too
   try {
     localStorage.setItem('cuckoo-muted', on ? '1' : '0')
   } catch {
@@ -227,3 +228,67 @@ export function chime(hour) {
   const strokes = ((hour + 11) % 12) + 1
   for (let i = 0; i < strokes; i++) bell(a, now + 2.6 + i * 1.1, 164.8, 0.11, 4)
 }
+
+// The station's "ding-dong" before an announcement: three soft, round notes going up, like a
+// public address system clicking on.
+const PA_NOTES = [523.3, 659.3, 784] // C E G
+function dingDong() {
+  const a = ctx()
+  if (!a) return
+  const now = a.currentTime
+  PA_NOTES.forEach((freq, i) => {
+    const start = now + i * 0.32
+    for (const [ratio, level] of [
+      [1, 0.09],
+      [2, 0.02],
+    ]) {
+      const osc = a.createOscillator()
+      osc.frequency.value = freq * ratio
+      osc.connect(envelope(a, start, level, 1.3, 0.015))
+      osc.start(start)
+      osc.stop(start + 1.4)
+    }
+  })
+}
+
+// The demon reads its law out loud like an announcement on the subway: once the tower's chime
+// has rung, the ding-dong, then a calm, unhurried voice. It uses the most natural English voice
+// the browser has (Edge's "Natural" voices are the best; Chrome and Safari have good ones too),
+// preferably a British one. Muted, it stays silent; muting while it talks stops it.
+const voice = typeof window !== 'undefined' ? window.speechSynthesis : null
+const PREFERRED = [/natural.*united kingdom/i, /natural.*english/i, /google uk english female/i, /serena|kate|sonia|libby/i, /google uk english/i, /daniel/i]
+function announcer() {
+  const english = voice.getVoices().filter((v) => v.lang.startsWith('en'))
+  for (const like of PREFERRED) {
+    const found = english.find((v) => like.test(v.name))
+    if (found) return found
+  }
+  return english.find((v) => v.lang === 'en-GB') ?? english[0] ?? null
+}
+voice?.getVoices() // (asks the browser to start loading its voices now, so they are ready)
+
+// words: what it says. after: how many seconds to wait before the ding-dong (for a law, until
+// the tower's chime has rung); the voice follows a second later.
+export function speak(words, after = 1.9) {
+  if (!voice || muted) return
+  voice.cancel() // (whatever it was still saying is cut off)
+  const line = new SpeechSynthesisUtterance(words)
+  const who = announcer()
+  if (who) line.voice = who
+  line.lang = who?.lang ?? 'en-GB'
+  line.pitch = 0.95
+  line.rate = 0.9
+  waiting.push(setTimeout(() => !muted && dingDong(), after * 1000))
+  waiting.push(setTimeout(() => !muted && voice.speak(line), (after + 1) * 1000))
+}
+let waiting = [] // the ding-dong and the voice, while they wait for their turn
+
+// The demon stops talking, and won't start (a new game starts).
+export function hush() {
+  waiting.forEach(clearTimeout)
+  waiting = []
+  voice?.cancel()
+}
+
+// The demon reads out a law: its opener, the law itself and its closer, with a pause between.
+export const speakLaw = ({ opener, text, closer }) => speak(`${opener} ... ${text} ... ${closer}`)

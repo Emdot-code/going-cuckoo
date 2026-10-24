@@ -8,8 +8,9 @@ import { Landscape } from './App.jsx'
 import { Confetti } from './Hud.jsx'
 import { PLOTS, SHAPES } from './city.js'
 import { HOURS, city, clockOf, duskOf, isHome, me, sunOf, useCity } from './cityGame.js'
-import { TOWER_SPOTS, TREE_TOP, carryPoint, houseTop, shopSign } from './CityScene.jsx'
+import { TOWER_SPOTS, TREE_TOP, carryPoint, houseTop } from './CityScene.jsx'
 import { LIST_LENGTH } from './groceries.js'
+import GroceryIcon from './GroceryIcon.jsx'
 import { anchorRef, toScreen } from './anchors.js'
 import { INK, MINT, RED, YELLOW } from './palette.js'
 import { isMuted, setMuted } from './sounds.js'
@@ -237,7 +238,9 @@ export function GroceryList() {
       <ul>
         {city.list.map((g, i) => (
           <li key={g.name} className={g.done ? 'is-done' : i === carrying ? 'is-carried' : ''}>
-            <span className="icon">{g.icon}</span>
+            <span className="icon">
+              <GroceryIcon name={g.name} />
+            </span>
             <span className="name">{g.name}</span>
             <span className="state">{g.done ? '✓' : i === carrying ? 'in hand' : ''}</span>
           </li>
@@ -247,24 +250,15 @@ export function GroceryList() {
   )
 }
 
-// What you carry, floating above your head; and the shop's sign above its roof.
+// What you carry, floating above your head.
 export function Carried() {
   const { phase, carrying } = useCity()
   if (phase !== 'running' || carrying === null) return null
   return (
     <div className="pin" ref={anchorRef(carryPoint)} aria-hidden="true">
       <div key={carrying} className="carried">
-        {city.list[carrying].icon}
+        <GroceryIcon name={city.list[carrying].name} size={20} />
       </div>
-    </div>
-  )
-}
-export function ShopSign() {
-  const { phase } = useCity()
-  if (phase === 'select') return null
-  return (
-    <div className="pin" ref={anchorRef(shopSign)} aria-hidden="true">
-      <div className="shop-sign">🛒 shop</div>
     </div>
   )
 }
@@ -389,27 +383,28 @@ function DemonPortrait() {
   )
 }
 
-// Sunset: a purple card in the middle. Home or stranded, which groceries made it home, and the
-// demon itself, delivering its verdict.
+// Sunset: a purple card in the middle. Home with a full fridge, home but hungry (the list isn't
+// done), or stranded; which groceries made it home; and the demon itself, delivering its verdict.
 export function CityEnd({ onAgain }) {
   const { phase } = useCity()
   if (phase !== 'night') return null
   const { home, delivered } = city
+  const full = delivered === LIST_LENGTH
   return (
     <div className="city-end">
-      {home && delivered === LIST_LENGTH && <Confetti />}
+      {home && full && <Confetti />}
       <section className="end-card">
         <span className="eyebrow">18:00 · the sun has set</span>
-        <h2>{home ? 'You made it home!' : 'Stranded at sunset.'}</h2>
+        <h2>{!home ? 'Stranded at sunset.' : full ? 'Home, with a full fridge!' : 'Home, but hungry.'}</h2>
         <div className="end-groceries" aria-label={`${delivered} of ${LIST_LENGTH} groceries home`}>
           {city.list.map((g) => (
             <span key={g.name} className={g.done ? 'is-done' : ''}>
-              {g.icon}
+              <GroceryIcon name={g.name} size={22} />
             </span>
           ))}
         </div>
-        <p className="end-count">
-          {delivered} of {LIST_LENGTH} groceries home
+        <p className={`end-count${home && !full ? ' is-hungry' : ''}`}>
+          {delivered} of {LIST_LENGTH} groceries home{home && !full ? ' · you go to sleep hungry' : ''}
         </p>
         <div className="demon-says">
           <DemonPortrait />

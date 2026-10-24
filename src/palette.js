@@ -81,3 +81,25 @@ export const DUSK_MID = '#d79a9a'
 export const DUSK_LOW = '#eebc9e'
 // The law of the hour, carved into the tower: a little darker than its lavender stone (index.css).
 export const CARVE = '#8a7ba3'
+
+// The groceries, drawn as flat shapes (GroceryIcon.jsx): soft, warm food colours.
+export const FOOD = {
+  red: RED,
+  leaf: '#7fb38f',
+  leafDark: '#4f8a6c',
+  yellow: YELLOW,
+  lemon: '#ffe27a',
+  cream: '#fff1d6',
+  sand: '#f3d9b4',
+  crust: '#d99a62',
+  brown: '#9a6449',
+  chocolate: '#7a4a3c',
+  orange: '#f59a5b',
+  blue: BLUE,
+  sky: '#b9c6ef',
+  grape: '#9b7fc4',
+  onion: '#d6a0c4',
+  avocado: '#d4e6a5',
+  mint: MINT,
+  ink: INK,
+}

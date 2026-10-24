@@ -9,6 +9,7 @@
 
 import { PLOTS, POINTY, RESIDENT_BY_ID, SHAPES, landOf, nameOf } from './city.js'
 import { shuffle, topOf } from './town.js'
+import { LIST_LENGTH } from './groceries.js'
 
 const pick = (list) => list[Math.floor(Math.random() * list.length)]
 const resident = (id) => RESIDENT_BY_ID[id]
@@ -311,21 +312,22 @@ export const note = (kind, ...args) => {
 }
 export const ownerNote = (id) => note('bump', nameOf(id))
 
-// The demon's verdict at sunset: whether you made it home, and how many groceries you got there.
+// The demon's verdict at sunset: whether you made it home, and whether the whole list got there.
+// Home without everything on the list, you go to sleep hungry.
 const ALL_DONE = [
-  'All six! Your fridge is full. I’m almost proud.',
+  'All fifteen! Your fridge is full. I’m almost proud.',
   'Every single thing. Show-off.',
   'A full list! I shall make a law against you tomorrow.',
 ]
 const SOME_DONE = [
-  'Half a dinner. Very modern.',
-  'Some groceries. Some hunger. Balance!',
-  'Not bad. Not good. Like a beige wall.',
+  'Half a dinner is no dinner. Sleep hungry, little shape.',
+  'The list was not finished. Neither is your supper. Goodnight, rumbly tummy.',
+  'Some groceries, but not enough. You go to bed hungry. I’ll have a snack for you.',
 ]
 const NONE_DONE = [
-  'Home, but the fridge is empty. Enjoy your air soup.',
-  'Zero groceries. Bold diet.',
-  'You went shopping and bought… nothing. Iconic.',
+  'Home, but the fridge is empty. You go to sleep hungry. Enjoy your air soup.',
+  'Zero groceries. Bold diet. Sleep tight, hungry one.',
+  'You went shopping and bought… nothing. Off to bed with an empty tummy.',
 ]
 const HOMELESS = [
   'You are now a public monument. Pigeons are on their way.',
@@ -335,5 +337,5 @@ const HOMELESS = [
 ]
 export function verdict(home, delivered) {
   if (!home) return pick(HOMELESS)
-  return pick(delivered >= 6 ? ALL_DONE : delivered > 0 ? SOME_DONE : NONE_DONE)
+  return pick(delivered >= LIST_LENGTH ? ALL_DONE : delivered > 0 ? SOME_DONE : NONE_DONE)
 }

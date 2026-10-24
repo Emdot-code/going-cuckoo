@@ -1,4 +1,4 @@
-// Your grocery day: six things on your list (groceries.js) to fetch from the shop, one at a time,
+// Your grocery day: fifteen things on your list (groceries.js) to fetch from the shop, one at a time,
 // and carry home before sunset. You can only carry one thing at a time, and only your own house
 // will take it.
 //
@@ -19,7 +19,7 @@ import { useSyncExternalStore } from 'react'
 import { GRID, HOUSES_AT, PLOTS, RESIDENTS, STAGES, createHouses, inGrid, isHidden, isOpen, isTower, landOf, plotAt } from './city.js'
 import { announce, nextLaw, note, ownerNote, verdict } from './cityLaws.js'
 import { LIST_LENGTH, listOfTheDay } from './groceries.js'
-import { caw, chime, delivered, ping, shopBell } from './sounds.js'
+import { caw, chime, delivered, hush, ping, shopBell, speak, speakLaw } from './sounds.js'
 import { shuffle } from './town.js'
 
 export const HOURS = 5 // how many hours (and laws) the day has
@@ -68,6 +68,7 @@ const landPlots = () => landOf(city.stage)
 
 // shape: the shape you picked. Without one, the city just waits behind the start screen.
 export function resetCity(shape = null) {
+  hush()
   Object.assign(city, {
     phase: shape ? 'running' : 'select', // 'select', 'running' or 'night'
     minutes: DAY_START,
@@ -205,7 +206,7 @@ function deliver() {
   city.delivered++
   delivered()
   const left = LIST_LENGTH - city.delivered
-  say(left ? `${thing.icon} ${thing.name} is home! ${left} to go.` : 'All six! Your groceries are home.', 'home')
+  say(left ? `The ${thing.name} ${thing.name.endsWith('s') ? 'are' : 'is'} home! ${left} to go.` : 'Every last thing! Your groceries are home.', 'home')
 }
 
 // A hop is done. On a tree, the birds get mad; on the shop, you shop; on your own roof, you drop
@@ -298,8 +299,8 @@ function moveWalkers(dt) {
 
 // The hour strikes: the demon pops out and announces a law, which takes effect at once. From the
 // second law on, the city first grows a strip and new neighbours arrive. The others all lose their
-// houses and set off for their new ones after a moment of confusion; you only keep yours if you
-// are standing on it.
+// houses and set off for their new ones after a moment of confusion; so do you, even if you are
+// standing on yours.
 function strike() {
   chime(Math.floor(city.minutes / 60)) // the tower rings the new hour
   if (city.lawCount > 0) grow()
@@ -307,14 +308,8 @@ function strike() {
   city.law = nextLaw(city)
   city.laws.push(city.law)
   city.speech = announce(city.law)
-  const you = me()
-  const kept = isHome(you) ? city.houses[you.house] : null
+  speakLaw(city.speech) // the demon reads its law out loud
   city.law.apply(city)
-  if (kept && kept.owner !== city.player) {
-    // you were home, so it stays yours: whoever got it takes the house the law gave you
-    homeOf(city.player).owner = kept.owner
-    kept.owner = city.player
-  }
   city.lawCount++
   for (const w of city.walkers) {
     w.queued = null
@@ -329,7 +324,7 @@ function strike() {
       }
     }
   }
-  say(kept ? 'You were home, so it’s still yours.' : note('evicted'), kept ? 'home' : '')
+  say(note('evicted'))
 }
 
 // 18:00: the sun sets, the demon sleeps and every house locks.
@@ -342,6 +337,7 @@ function sunset() {
   }
   city.home = isHome(w)
   city.verdict = verdict(city.home, city.delivered)
+  speak(city.verdict, 0.8) // the demon reads its verdict out loud, as the sunset card comes up
 }
 
 // Moves the day forward by dt real seconds.
